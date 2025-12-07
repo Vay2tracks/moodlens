@@ -18,38 +18,41 @@ function WebcamMood() {
   const [emotion, setEmotion] = useState("Detecting...");
   const [logs, setLogs] = useState(() => JSON.parse(localStorage.getItem("moodLogs")) || []);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [cameraError, setCameraError] = useState(false);
+  const [modelError, setModelError] = useState(false);
 
-  // Load models and start webcam
+  // Load models
   useEffect(() => {
     const loadModels = async () => {
       try {
+        console.log("Loading face-api models...");
         await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
         await faceapi.nets.faceExpressionNet.loadFromUri("/models");
+        console.log("Models loaded successfully");
+        setModelError(false);
         startVideo();
       } catch (err) {
         console.error("Error loading models:", err);
-        setError(true);
+        setModelError(true);
         setLoading(false);
       }
     };
 
     const startVideo = () => {
       navigator.mediaDevices
-        .getUserMedia({
-          video: { facingMode: "user", width: { ideal: 360 }, height: { ideal: 260 } },
-          audio: false,
-        })
+        .getUserMedia({ video: { facingMode: "user", width: { ideal: 360 }, height: { ideal: 260 } }, audio: false })
         .then((stream) => {
           if (videoRef.current) {
             videoRef.current.srcObject = stream;
             videoRef.current.play();
           }
+          console.log("Camera stream started");
+          setCameraError(false);
           setLoading(false);
         })
         .catch((err) => {
           console.error("Camera error:", err);
-          setError(true);
+          setCameraError(true);
           setLoading(false);
         });
     };
@@ -57,98 +60,75 @@ function WebcamMood() {
     loadModels();
   }, []);
 
-  // Detect emotions continuously
+  // Detect emotions
   useEffect(() => {
-    if (loading || error) return;
+    if (loading || cameraError || modelError) return;
 
     const interval = setInterval(async () => {
       if (!videoRef.current) return;
 
-      const detection = await faceapi
-        .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
-        .withFaceExpressions();
+      try {
+        const detection = await faceapi
+          .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+          .withFaceExpressions();
 
-      if (detection && detection.expressions) {
-        const sorted = Object.entries(detection.expressions).sort((a, b) => b[1] - a[1]);
-        const detectedMood = sorted[0][0];
+        if (detection && detection.expressions) {
+          const sorted = Object.entries(detection.expressions).sort((a, b) => b[1] - a[1]);
+          const detectedMood = sorted[0][0];
 
-        if (detectedMood !== emotion) {
-          setEmotion(detectedMood);
+          if (detectedMood !== emotion) {
+            setEmotion(detectedMood);
 
-          const newEntry = {
-            time: new Date().toLocaleTimeString(),
-            mood: detectedMood,
-          };
+            const newEntry = {
+              time: new Date().toLocaleTimeString(),
+              mood: detectedMood,
+            };
 
-          setLogs((prev) => {
-            const updated = [newEntry, ...prev];
-            localStorage.setItem("moodLogs", JSON.stringify(updated));
-            return updated;
-          });
+            setLogs((prev) => {
+              const updated = [newEntry, ...prev];
+              localStorage.setItem("moodLogs", JSON.stringify(updated));
+              return updated;
+            });
+          }
         }
+      } catch (err) {
+        console.error("Face detection error:", err);
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [emotion, loading, error]);
+  }, [emotion, loading, cameraError, modelError]);
 
   const currentMood = moodMap[emotion] || { emoji: "❓", color: "#374151" };
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        width: "100%",
-        paddingBottom: "40px",
-      }}
-    >
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", width: "100%", paddingBottom: "40px" }}>
       {/* Current Mood */}
-      <h2
-        style={{
-          fontSize: "22px",
-          fontWeight: "600",
-          color: currentMood.color,
-          marginBottom: "12px",
-        }}
-      >
-        Current Mood:{" "}
-        <span style={{ textTransform: "capitalize" }}>
-          {emotion} {currentMood.emoji}
-        </span>
+      <h2 style={{ fontSize: "22px", fontWeight: "600", color: currentMood.color, marginBottom: "12px" }}>
+        Current Mood: <span style={{ textTransform: "capitalize" }}>{emotion} {currentMood.emoji}</span>
       </h2>
 
       {/* Webcam Box */}
       <div
         style={{
-          borderRadius: "12px",
-          border: `3px solid ${currentMood.color}`,
-          boxShadow: `0 0 20px ${currentMood.color}55`, // subtle glow
-          overflow: "hidden",
-          marginTop: "10px",
-          transition: "box-shadow 0.3s, border 0.3s",
           width: "360px",
           height: "260px",
+          borderRadius: "12px",
+          border: `3px solid ${currentMood.color}`,
+          boxShadow: `0 0 20px ${currentMood.color}55`,
           display: "flex",
-          alignItems: "center",
           justifyContent: "center",
+          alignItems: "center",
           backgroundColor: "#f3f4f6",
           color: "#6b7280",
+          marginTop: "10px",
         }}
       >
-        {loading && !error && "Loading camera..."}
-        {error && "Camera not available. Please allow camera or use a supported device."}
-        {!loading && !error && (
-          <video
-            ref={videoRef}
-            autoPlay
-            muted
-            playsInline
-            width="360"
-            height="260"
-            style={{ borderRadius: "12px" }}
-          />
+        {loading && !cameraError && !modelError && "Loading..."}
+        {cameraError && "Camera not available. Check permissions or device."}
+        {modelError && "Model failed to load. Check console for errors."}
+        {!loading && !cameraError && !modelError && (
+          <video ref={videoRef} autoPlay muted playsInline width="360" height="260" style={{ borderRadius: "12px" }} />
         )}
       </div>
 
