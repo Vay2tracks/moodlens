@@ -4,13 +4,13 @@ import MoodJournal from "./MoodJournal";
 
 // Map moods to emojis and colors
 const moodMap = {
-  happy: { emoji: "😄", color: "#facc15" }, // yellow
-  sad: { emoji: "😢", color: "#3b82f6" }, // blue
-  angry: { emoji: "😡", color: "#ef4444" }, // red
-  surprised: { emoji: "😲", color: "#f472b6" }, // pink
-  fearful: { emoji: "😱", color: "#8b5cf6" }, // purple
-  disgusted: { emoji: "🤢", color: "#10b981" }, // green
-  neutral: { emoji: "😐", color: "#6b7280" }, // gray
+  happy: { emoji: "😄", color: "#facc15" },
+  sad: { emoji: "😢", color: "#3b82f6" },
+  angry: { emoji: "😡", color: "#ef4444" },
+  surprised: { emoji: "😲", color: "#f472b6" },
+  fearful: { emoji: "😱", color: "#8b5cf6" },
+  disgusted: { emoji: "🤢", color: "#10b981" },
+  neutral: { emoji: "😐", color: "#6b7280" },
 };
 
 function WebcamMood() {
@@ -21,55 +21,58 @@ function WebcamMood() {
   const [cameraError, setCameraError] = useState(false);
   const [modelError, setModelError] = useState(false);
 
-  // Load models
+  // Load models and start webcam
   useEffect(() => {
-    const loadModels = async () => {
+    const loadModelsAndVideo = async () => {
       try {
         console.log("Loading face-api models...");
         await faceapi.nets.tinyFaceDetector.loadFromUri("/models");
         await faceapi.nets.faceExpressionNet.loadFromUri("/models");
         console.log("Models loaded successfully");
         setModelError(false);
-        startVideo();
+
+        // Start camera
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "user", width: { ideal: 360 }, height: { ideal: 260 } },
+          audio: false,
+        });
+
+        const video = videoRef.current;
+        if (video) {
+          video.srcObject = stream;
+
+          // Play video after metadata is loaded
+          video.onloadedmetadata = () => {
+            video.play().catch(err => console.error("Video play error:", err));
+            setLoading(false);
+            setCameraError(false);
+          };
+        }
       } catch (err) {
-        console.error("Error loading models:", err);
-        setModelError(true);
+        console.error("Error initializing webcam or models:", err);
+        if (err.name.includes("NotAllowed") || err.name.includes("Permission")) {
+          setCameraError(true);
+        } else {
+          setModelError(true);
+        }
         setLoading(false);
       }
     };
 
-    const startVideo = () => {
-      navigator.mediaDevices
-        .getUserMedia({ video: { facingMode: "user", width: { ideal: 360 }, height: { ideal: 260 } }, audio: false })
-        .then((stream) => {
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-            videoRef.current.play();
-          }
-          console.log("Camera stream started");
-          setCameraError(false);
-          setLoading(false);
-        })
-        .catch((err) => {
-          console.error("Camera error:", err);
-          setCameraError(true);
-          setLoading(false);
-        });
-    };
-
-    loadModels();
+    loadModelsAndVideo();
   }, []);
 
-  // Detect emotions
+  // Detect emotions continuously
   useEffect(() => {
     if (loading || cameraError || modelError) return;
 
     const interval = setInterval(async () => {
-      if (!videoRef.current) return;
+      const video = videoRef.current;
+      if (!video) return;
 
       try {
         const detection = await faceapi
-          .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+          .detectSingleFace(video, new faceapi.TinyFaceDetectorOptions())
           .withFaceExpressions();
 
         if (detection && detection.expressions) {
@@ -84,7 +87,7 @@ function WebcamMood() {
               mood: detectedMood,
             };
 
-            setLogs((prev) => {
+            setLogs(prev => {
               const updated = [newEntry, ...prev];
               localStorage.setItem("moodLogs", JSON.stringify(updated));
               return updated;
@@ -124,12 +127,10 @@ function WebcamMood() {
           marginTop: "10px",
         }}
       >
-        {loading && !cameraError && !modelError && "Loading..."}
-        {cameraError && "Camera not available. Check permissions or device."}
-        {modelError && "Model failed to load. Check console for errors."}
-        {!loading && !cameraError && !modelError && (
-          <video ref={videoRef} autoPlay muted playsInline width="360" height="260" style={{ borderRadius: "12px" }} />
-        )}
+        {loading && "Loading camera and models..."}
+        {cameraError && "Camera access denied. Please allow camera permissions."}
+        {modelError && "Failed to load AI models. Check console."}
+        <video ref={videoRef} autoPlay muted playsInline width="360" height="260" style={{ borderRadius: "12px" }} />
       </div>
 
       {/* Mood Journal */}
